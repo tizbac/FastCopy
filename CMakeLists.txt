@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 2.6)
+project(fcopy)
+find_package(Boost REQUIRED COMPONENTS filesystem system)
+add_executable(fcopy main.cpp fibmap.c  geom.c  sysfs.c)
+include_directories(${Boost_INCLUDE_DIRS} . )
+target_link_libraries(fcopy ${Boost_LIBRARIES})
+install(TARGETS fcopy RUNTIME DESTINATION bin)
