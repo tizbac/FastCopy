@@ -27,9 +27,19 @@ opt-in:
 ## Progress bar
 
 `--progress` draws a bordered bar with file count, bytes and MB/s. It redraws in
-place on a terminal; when stdout is redirected it prints a single summary line
-instead, so it never corrupts piped output. `-v` messages are printed above the
-bar rather than over it.
+place on a terminal; when the stream it draws on is not a terminal it prints a
+single summary line instead, so it never corrupts piped output. `-v` messages
+are printed above the bar rather than over it.
+
+The progress output is a diagnostic stream:
+
+- **fastcopy** writes the bar and its summary to **stderr**; stdout is never
+  touched.
+- **fasttar** draws the bar on stdout only while stdout is a terminal, because
+  it shares that stream with `-v`/`-d` output that GNU tar prints on stdout.
+  Its one-line summary always goes to stderr. With `-cf -` (the archive on
+  stdout, as when piping into `gzip`) the bar, summary and `-v` names all move
+  to stderr, so stdout carries nothing but the archive stream.
 
 The box appears before any data moves: it first counts the files being scanned,
 and with `--fast` it shows the physical-extent indexing pass
@@ -114,7 +124,8 @@ On reading, a compressed file is recognised by its magic bytes and the same hint
 is printed (`gzip -dc file.tar.gz | fasttar -tf -`).
 
 When the archive itself is stdout (`-cf -`), `--progress` draws its box and
-summary on stderr so the stream stays a valid archive.
+summary on stderr and `-v` names follow GNU tar's rule of going to stderr too,
+so the stream stays a valid archive.
 
 ## Known differences from GNU tar 1.35
 

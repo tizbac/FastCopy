@@ -95,6 +95,9 @@ func run(argv []string) int {
 		progOut = os.Stderr
 	}
 	prog := progress.New(progOut, o.Progress)
+	// The one-line summary of a redirected run is a diagnostic; the box and
+	// the verbose/diff lines must stay on their GNU streams.
+	prog.SetReportWriter(os.Stderr)
 
 	// Refuse compression up front: fasttar writes plain tar streams and says
 	// exactly how to pipe the archive through a compressor instead.

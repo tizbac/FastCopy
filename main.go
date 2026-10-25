@@ -70,7 +70,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	prog := progress.New(os.Stdout, opts.Progress)
+	// Progress and its summary are diagnostics: keep stdout for real output.
+	prog := progress.New(os.Stderr, opts.Progress)
 	// The walk (and, with --fast, the per-file FIEMAP lookup) can take a while
 	// on a large tree, so show what it is doing before any byte moves.
 	scanLabel := "scanning"

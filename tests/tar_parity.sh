@@ -216,6 +216,15 @@ chk "diff changed file" 1 "$(cd "$T/x3" && run_exit "$FT" -df "$T/ft.tar")"
 chk "test-label" "MYLABEL" "$("$FT" --test-label -f "$T/lbl.tar")"
 chk "GNU reads labeled archive" "yes" "$("$GNU" -tf "$T/lbl.tar" >/dev/null && echo yes)"
 
+# --- nothing but the archive on stdout ---------------------------------------
+chk "archive to stdout stays clean" "yes" \
+  "$((cd "$T/src" && timeout 30 "$FT" --progress -cf - a.txt dir) | gzip | "$GNU" -tzf - | grep -qx a.txt && echo yes)"
+timeout 30 "$FT" --progress -tf "$T/ft.tar" >"$T/list.out" 2>"$T/list.err"
+chk "listing goes to stdout" "$("$GNU" -tf "$T/ft.tar" | wc -l)" "$(wc -l < "$T/list.out")"
+chk "summary is not in the listing" "1" "$(wc -l < "$T/list.err")"
+timeout 30 "$FT" --progress -cf "$T/clean.tar" -C "$T/src" a.txt >"$T/create.out" 2>"$T/create.err"
+chk "create keeps stdout empty" "0" "$(wc -c < "$T/create.out")"
+
 # --- --fast and --totals ------------------------------------------------------
 rm -rf "$T/fastx"
 mkdir -p "$T/fastx"
@@ -239,7 +248,7 @@ if command -v script >/dev/null 2>&1; then
 else
   chk_skip "progress box" "script(1) not installed"
 fi
-out=$("$FT" --progress -cf "$T/prog2.tar" -C "$T/src" a.txt)
+out=$("$FT" --progress -cf "$T/prog2.tar" -C "$T/src" a.txt 2>&1)
 case "$out" in
 *$'\x1b['*) echo "FAIL progress escapes when stdout is redirected"; fail=$((fail + 1)) ;;
 *files*) echo "PASS progress summary line when redirected"; pass=$((pass + 1)) ;;

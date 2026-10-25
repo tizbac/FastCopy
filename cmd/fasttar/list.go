@@ -56,8 +56,7 @@ func (l *listWriter) write(h *tar.Header, name string, block int64) error {
 
 	display = l.quote(display)
 	if l.o.Verbose == 0 {
-		_, err := fmt.Fprintln(l.out, prefix+display)
-		return err
+		return l.emit(prefix + display)
 	}
 
 	if h.Size > l.maxSz {
@@ -84,6 +83,17 @@ func (l *listWriter) write(h *tar.Header, name string, block int64) error {
 		line += " -> " + l.quote(h.Linkname)
 	case tar.TypeLink:
 		line += " link to " + l.quote(h.Linkname)
+	}
+	return l.emit(line)
+}
+
+// emit writes one listing line. While the progress box is on the terminal the
+// line goes through it, so the box stays below the listing instead of being
+// overwritten by it.
+func (l *listWriter) emit(line string) error {
+	if l.prog.Active() && l.out == os.Stdout {
+		l.prog.Line("%s", line)
+		return nil
 	}
 	_, err := fmt.Fprintln(l.out, line)
 	return err

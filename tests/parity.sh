@@ -120,8 +120,12 @@ chk "sparse blocks vs cp" "$(stat -c %B $T/sp_cp)" "$(stat -c %B $T/sp_always)"
 
 # non-tty progress: one summary line
 rm -rf $T/pout
-out=$(timeout 20 $FC --progress $T/a $T/pout)
+out=$(timeout 20 $FC --progress $T/src.txt $T/pout 2>&1)
 chk "non-tty progress line count" "1" "$(printf '%s\n' "$out" | wc -l)"
+rm -rf $T/pout
+timeout 20 $FC --progress $T/src.txt $T/pout >$T/pout.stdout 2>$T/pout.stderr
+chk "progress keeps stdout clean" "0" "$(wc -c < $T/pout.stdout)"
+chk "progress summary on stderr" "1" "$(wc -l < $T/pout.stderr)"
 echo "  progress line: $out"
 
 # tty progress: the box shows the pre-pass, named after what --fast is doing

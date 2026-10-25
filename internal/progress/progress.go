@@ -33,6 +33,7 @@ const (
 type Progress struct {
 	mu         sync.Mutex
 	out        io.Writer
+	report     io.Writer // plain-mode summary goes here (defaults to out)
 	enabled    bool
 	plain      bool // non-tty output: emit one summary line at the end
 	width      int
@@ -54,6 +55,7 @@ type Progress struct {
 func New(out io.Writer, enabled bool) *Progress {
 	p := &Progress{
 		out:     out,
+		report:  out,
 		enabled: enabled,
 		width:   terminalWidth(1),
 		start:   time.Now(),
@@ -68,6 +70,14 @@ func New(out io.Writer, enabled bool) *Progress {
 		p.width = 44
 	}
 	return p
+}
+
+// SetReportWriter chooses where the one-line summary of a non-terminal run is
+// written. The box and Line messages keep using the writer passed to New.
+func (p *Progress) SetReportWriter(w io.Writer) {
+	p.mu.Lock()
+	p.report = w
+	p.mu.Unlock()
 }
 
 // IsTTY reports whether w is a character device (a real terminal).
@@ -189,7 +199,7 @@ func (p *Progress) AddBytes(n int64) {
 func (p *Progress) AddFile() {
 	p.mu.Lock()
 	p.doneFiles++
-	if p.enabled {
+	if p.enabled && !p.plain && time.Since(p.last) > 100*time.Millisecond {
 		p.last = time.Now()
 		p.draw()
 	}
@@ -436,7 +446,7 @@ func (p *Progress) Finish() string {
 		line := fmt.Sprintf("%s, %s in %s (%.1f MB/s)",
 			files, FormatBytes(p.doneBytes),
 			FormatDuration(time.Since(p.start)), p.speedMB())
-		fmt.Fprintln(p.out, line)
+		fmt.Fprintln(p.report, line)
 		return line
 	}
 	p.draw()
