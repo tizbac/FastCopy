@@ -251,7 +251,9 @@ func runCreate(o *Options, prog *progress.Progress) error {
 	if o.CheckLinks {
 		reportMissingLinks(o, prog, members)
 	}
-	return writeArchive(o, prog, members, tl, b, 0)
+	// The output file was opened with O_TRUNC, and "-" is a stream: nothing
+	// to seek or truncate before writing.
+	return writeArchive(o, prog, members, tl, b, -1)
 }
 
 // writeArchive writes members to the output archive. seekTo < 0 means the
@@ -286,7 +288,7 @@ func writeArchive(o *Options, prog *progress.Progress, members []member, tl tran
 	var wroteDirs []string
 
 	// -V LABEL puts a volume label in the first record of a new archive.
-	if o.Label != "" && seekTo == 0 && o.Mode == modeCreate {
+	if o.Label != "" && seekTo < 0 && o.Mode == modeCreate {
 		h := &tar.Header{
 			Name:     o.Label,
 			Typeflag: 'V',
@@ -510,7 +512,7 @@ func runUpdate(o *Options, prog *progress.Progress) error {
 // runCatenate implements -A: append whole archives to the target.
 func runCatenate(o *Options, prog *progress.Progress) error {
 	if o.Archive == "-" {
-		return fmt.Errorf("-A requires a seekable archive file")
+		return &usageError{msg: "Options '-Aru' are incompatible with '-f -'"}
 	}
 	end, err := archiveEndOf(o)
 	if err != nil {
@@ -634,7 +636,7 @@ func runDelete(o *Options, prog *progress.Progress) error {
 // archiveEndOf locates the end of the current output archive.
 func archiveEndOf(o *Options) (int64, error) {
 	if o.Archive == "-" {
-		return 0, fmt.Errorf("archive must be seekable for this operation: use -f FILE")
+		return 0, &usageError{msg: "Options '-Aru' are incompatible with '-f -'"}
 	}
 	f, err := os.Open(o.Archive)
 	if err != nil {

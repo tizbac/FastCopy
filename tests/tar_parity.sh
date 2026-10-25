@@ -130,6 +130,15 @@ chk "GNU reads a fasttar stdout stream" \
 chk "fasttar reads a GNU stdout stream" \
   "$("$FT" -tf "$T/pipe2.tar" | sort)" "$(printf 'a.txt\ndir/\ndir/c.txt\ndir/sub/\ndir/sub/d.txt\n')"
 
+# A pipe is not seekable: writing an archive to stdout must not truncate it.
+chk "create to a pipe" "yes" \
+  "$((cd "$T/src" && timeout 30 "$FT" -cf - a.txt dir) | "$GNU" -tf - | grep -qx a.txt && echo yes)"
+for op in -rf -uf -Af; do
+  out=$(timeout 30 "$FT" "$op" - -C "$T/src" a.txt 2>&1)
+  chk "$op with -f - exit" 2 "$?"
+  chk_has "$op with -f - message" "$out" "incompatible with '-f -'"
+done
+
 # --- append, update, delete ---------------------------------------------------
 cp "$T/ft.tar" "$T/app.tar"
 printf 'new\n' >"$T/src/newfile.txt"
