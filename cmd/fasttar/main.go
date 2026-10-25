@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -87,7 +88,13 @@ func run(argv []string) int {
 		return 0
 	}
 
-	prog := progress.New(os.Stdout, o.Progress)
+	// When the archive itself is stdout, keep the box and its summary line out
+	// of the archive stream.
+	progOut := io.Writer(os.Stdout)
+	if o.Mode.creates() && o.Archive == "-" {
+		progOut = os.Stderr
+	}
+	prog := progress.New(progOut, o.Progress)
 
 	// Refuse compression up front: fasttar writes plain tar streams and says
 	// exactly how to pipe the archive through a compressor instead.

@@ -146,6 +146,7 @@ func (c *copier) walkDir(src, dst string, entries *[]entry) error {
 }
 
 func (c *copier) addFile(entries *[]entry, src, dst string, info os.FileInfo) {
+	c.prog.ScanStep(src)
 	st, err := statT(src)
 	if err != nil {
 		c.warn(err)
@@ -302,7 +303,7 @@ func (c *copier) run(entries []entry) error {
 	for _, e := range entries {
 		totalBytes += e.size
 	}
-	c.prog.SetTotal(len(entries), totalBytes)
+	c.prog.StartCopy(len(entries), totalBytes)
 
 	// Hard-link duplicates are copied after everything else so the file they
 	// link to is guaranteed to exist, even with several workers or --fast.

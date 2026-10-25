@@ -71,6 +71,13 @@ func main() {
 	}
 
 	prog := progress.New(os.Stdout, opts.Progress)
+	// The walk (and, with --fast, the per-file FIEMAP lookup) can take a while
+	// on a large tree, so show what it is doing before any byte moves.
+	scanLabel := "scanning"
+	if opts.Fast {
+		scanLabel = "indexing extents"
+	}
+	prog.BeginScan(scanLabel)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

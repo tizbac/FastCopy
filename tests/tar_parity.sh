@@ -233,6 +233,9 @@ if command -v script >/dev/null 2>&1; then
   *$'\x1b['*) echo "PASS progress box on a tty"; pass=$((pass + 1)) ;;
   *) echo "FAIL progress box on a tty: no ANSI output"; fail=$((fail + 1)) ;;
   esac
+  chk "creation scan phase" "yes" "$(printf '%s' "$out" | grep -q 'scanning' && echo yes)"
+  out=$(script -qec "LC_ALL=C $FT --progress --fast -cf $T/prog3.tar -C $T/src a.txt" /dev/null)
+  chk "extent indexing phase" "yes" "$(printf '%s' "$out" | grep -q 'indexing extents' && echo yes)"
 else
   chk_skip "progress box" "script(1) not installed"
 fi

@@ -31,6 +31,11 @@ place on a terminal; when stdout is redirected it prints a single summary line
 instead, so it never corrupts piped output. `-v` messages are printed above the
 bar rather than over it.
 
+The box appears before any data moves: it first counts the files being scanned,
+and with `--fast` it shows the physical-extent indexing pass
+(`indexing extents`) while the FIEMAP lookups run. Both fastcopy and fasttar
+share this, so a large tree never looks hung.
+
 ```
 ┌──────────────────────────────────────────────────────┐
 │ 40/40 files  ███████████████████████████████  100.0% │
@@ -107,6 +112,9 @@ fasttar: fasttar never compresses archives: -z/-j/-J/-Z/--lzma/--lzip/--lzop/--z
 
 On reading, a compressed file is recognised by its magic bytes and the same hint
 is printed (`gzip -dc file.tar.gz | fasttar -tf -`).
+
+When the archive itself is stdout (`-cf -`), `--progress` draws its box and
+summary on stderr so the stream stays a valid archive.
 
 ## Known differences from GNU tar 1.35
 

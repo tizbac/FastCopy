@@ -124,6 +124,17 @@ out=$(timeout 20 $FC --progress $T/a $T/pout)
 chk "non-tty progress line count" "1" "$(printf '%s\n' "$out" | wc -l)"
 echo "  progress line: $out"
 
+# tty progress: the box shows the pre-pass, named after what --fast is doing
+if command -v script >/dev/null 2>&1; then
+  rm -rf $T/pfast $T/pplain
+  out=$(script -qec "$FC --progress --fast $T/a $T/pfast" /dev/null | tr -d '\r')
+  chk "tty progress --fast scan phase" "yes" "$(printf '%s' "$out" | grep -q 'indexing extents' && echo yes)"
+  out=$(script -qec "$FC --progress $T/a $T/pplain" /dev/null | tr -d '\r')
+  chk "tty progress scan phase" "yes" "$(printf '%s' "$out" | grep -q 'scanning' && echo yes)"
+else
+  echo "SKIP tty progress (script not installed)"
+fi
+
 # -d and -p parity
 cp -dr $T/a $T/d_cp; timeout 10 $FC -dr $T/a $T/d_fc
 chk "-d parity" "ok" "$(diff -r $T/d_cp $T/d_fc >/dev/null && echo ok)"

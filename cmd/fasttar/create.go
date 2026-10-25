@@ -260,7 +260,7 @@ func runCreate(o *Options, prog *progress.Progress) error {
 // output is a fresh stream; otherwise the archive is truncated there first
 // (append and update).
 func writeArchive(o *Options, prog *progress.Progress, members []member, tl transformList, b *builder, seekTo int64) error {
-	prog.SetTotal(len(members), b.bytes)
+	prog.StartCopy(len(members), b.bytes)
 
 	f, err := openWrite(o)
 	if err != nil {

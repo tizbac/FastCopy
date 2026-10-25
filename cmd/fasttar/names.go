@@ -294,6 +294,7 @@ func (b *builder) collect(entries []entry) ([]member, error) {
 	if b.readErr != nil {
 		return nil, b.readErr
 	}
+	b.prog.BeginScan("scanning")
 	var out []member
 	for _, e := range entries {
 		if err := b.add(e, &out); err != nil {
@@ -335,11 +336,13 @@ func (b *builder) collect(entries []entry) ([]member, error) {
 // moves forward, exactly like fastcopy --fast. Members without an answer
 // (directories, symlinks, tmpfs files) keep their relative position first.
 func (b *builder) order(members []member) {
+	b.prog.BeginScan("indexing extents")
 	for i := range members {
 		m := &members[i]
 		if m.hard || m.st == nil || !m.st.Mode().IsRegular() {
 			continue
 		}
+		b.prog.ScanStep(m.name)
 		off, ok := fiemap.FirstPhysicalOffset(m.path)
 		if !ok {
 			continue
@@ -595,6 +598,7 @@ func readVCSIgnore(path string) ([]string, error) {
 // visitMember decides whether a node becomes a member and appends it.
 func (b *builder) visitMember(path, name string, st os.FileInfo, out *[]member) error {
 	o := b.o
+	b.prog.ScanStep(name)
 
 	// Exclusion always looks at the name without its trailing slash.
 	if b.excluded(strings.TrimSuffix(name, "/")) {

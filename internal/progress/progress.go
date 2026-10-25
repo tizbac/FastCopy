@@ -45,6 +45,10 @@ type Progress struct {
 	lines      int
 	last       time.Time
 	pulse      int
+	// Scan pre-pass state (walking the tree or indexing physical extents).
+	scan      bool
+	scanLabel string
+	scanFiles int64
 }
 
 func New(out io.Writer, enabled bool) *Progress {
@@ -108,6 +112,61 @@ func FormatDuration(d time.Duration) string {
 	}
 	return strconv.Itoa(int(d.Hours())) + "h" +
 		strconv.Itoa(int(d.Minutes())%60) + "m"
+}
+
+// BeginScan starts a pre-pass whose size is not known yet: walking the tree,
+// or looking up the physical extents that --fast needs. The box slides a pulse
+// and counts the items visited so far, so a long scan does not look hung.
+func (p *Progress) BeginScan(label string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.enabled {
+		return
+	}
+	p.scan = true
+	p.scanLabel = label
+	p.scanFiles = 0
+	p.totalFiles = 0
+	p.totalBytes = 0
+	p.doneFiles = 0
+	p.doneBytes = 0
+	p.current = ""
+	p.start = time.Now()
+	p.last = time.Time{}
+	if !p.plain {
+		p.draw()
+	}
+}
+
+// ScanStep records one more item visited during a scan pre-pass.
+func (p *Progress) ScanStep(name string) {
+	if !p.enabled {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.scanFiles++
+	p.current = name
+	if !p.plain && p.scan && time.Since(p.last) > 100*time.Millisecond {
+		p.last = time.Now()
+		p.draw()
+	}
+}
+
+// StartCopy ends a scan pre-pass and sets the totals for the copy itself.
+func (p *Progress) StartCopy(files int, bytes int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.scan = false
+	p.totalFiles = files
+	p.totalBytes = bytes
+	p.doneFiles = 0
+	p.doneBytes = 0
+	p.start = time.Now()
+	p.last = time.Time{}
+	if p.enabled && !p.plain {
+		p.draw()
+	}
 }
 
 func (p *Progress) SetTotal(files int, bytes int64) {
@@ -313,7 +372,11 @@ func (p *Progress) boxLines() []string {
 		colMagenta + fmt.Sprintf("%.1f MB/s", p.speedMB()) + colReset +
 		colDim + " · " + colReset +
 		colBlue + "ETA " + FormatDuration(p.eta()) + colReset
-	if unknown || p.totalFiles <= 0 {
+	if p.scan {
+		// The totals are unknown until the walk or the extent lookup is done.
+		stats = colCyan + fmt.Sprintf("%d files", p.scanFiles) + colReset +
+			colDim + " · " + colReset + colBlue + p.scanLabel + colReset
+	} else if unknown || p.totalFiles <= 0 {
 		// Extraction only knows the archive size, not the member count.
 		bytes := colYellow + FormatBytes(p.doneBytes) + colReset
 		eta := "ETA ?"
@@ -365,7 +428,9 @@ func (p *Progress) Finish() string {
 	}
 	if p.plain {
 		files := fmt.Sprintf("%d/%d files", p.doneFiles, p.totalFiles)
-		if p.totalFiles <= 0 {
+		if p.scan {
+			files = fmt.Sprintf("%d files", p.scanFiles)
+		} else if p.totalFiles <= 0 {
 			files = fmt.Sprintf("%d files", p.doneFiles)
 		}
 		line := fmt.Sprintf("%s, %s in %s (%.1f MB/s)",
