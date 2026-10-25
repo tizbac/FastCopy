@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/tiziano/fastcopy/internal/progress"
 )
 
 const version = "1.0.0"
@@ -68,7 +70,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	prog := NewProgress(os.Stdout, opts.Progress)
+	prog := progress.New(os.Stdout, opts.Progress)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -136,7 +138,7 @@ func main() {
 	}
 	if opts.Verbose {
 		fmt.Fprintf(os.Stderr, "fastcopy: %d files, %s in %s\n",
-			len(entries), fmtBytes(totalBytes(entries)), fmtDuration(time.Since(start)))
+			len(entries), progress.FormatBytes(totalBytes(entries)), progress.FormatDuration(time.Since(start)))
 	}
 }
 

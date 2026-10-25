@@ -1,21 +1,25 @@
-BINARY ?= fastcopy
+BINARIES = fastcopy fasttar
 GO ?= go
 
-all: $(BINARY)
+all: $(BINARIES)
 
-$(BINARY): main.go flags.go copy.go progress.go fiemap.go util.go
-	$(GO) build -o $(BINARY) .
+fastcopy: *.go internal/progress/*.go internal/fiemap/*.go
+	$(GO) build -o fastcopy .
 
-test: $(BINARY)
-	$(GO) test .
+fasttar: cmd/fasttar/*.go internal/progress/*.go internal/fiemap/*.go
+	$(GO) build -o fasttar ./cmd/fasttar
+
+test: $(BINARIES)
+	$(GO) test ./...
 	./tests/parity.sh
 	./tests/fuzz.sh
+	./tests/tar_parity.sh
 
 vet:
-	$(GO) vet .
+	$(GO) vet ./...
 
 clean:
-	rm -f $(BINARY)
-	rm -rf tests/out
+	rm -f $(BINARIES)
+	rm -rf tests/out tests/fuzzout tests/out-tar
 
 .PHONY: all test vet clean

@@ -1,9 +1,13 @@
-package main
+// Package progress draws the ANSI progress box shared by fastcopy and
+// fasttar: a bordered frame with a bar, counters, throughput and ETA that
+// redraws in place on a terminal and collapses to one summary line elsewhere.
+package progress
 
 import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -40,16 +44,17 @@ type Progress struct {
 	start      time.Time
 	lines      int
 	last       time.Time
+	pulse      int
 }
 
-func NewProgress(out io.Writer, enabled bool) *Progress {
+func New(out io.Writer, enabled bool) *Progress {
 	p := &Progress{
 		out:     out,
 		enabled: enabled,
 		width:   terminalWidth(1),
 		start:   time.Now(),
 	}
-	if !isTTY(out) {
+	if !IsTTY(out) {
 		p.plain = true
 	}
 	if p.width > 72 {
@@ -61,7 +66,8 @@ func NewProgress(out io.Writer, enabled bool) *Progress {
 	return p
 }
 
-func isTTY(w io.Writer) bool {
+// IsTTY reports whether w is a character device (a real terminal).
+func IsTTY(w io.Writer) bool {
 	f, ok := w.(*os.File)
 	if !ok {
 		return false
@@ -71,6 +77,37 @@ func isTTY(w io.Writer) bool {
 		return false
 	}
 	return st.Mode()&os.ModeCharDevice != 0
+}
+
+// FormatBytes renders a byte count in base 1024 units.
+func FormatBytes(n int64) string {
+	if n < 1024 {
+		return strconv.FormatInt(n, 10) + " B"
+	}
+	units := []string{"KB", "MB", "GB", "TB", "PB"}
+	f := float64(n)
+	for _, u := range units {
+		f /= 1024
+		if f < 1024 {
+			return strconv.FormatFloat(f, 'f', 1, 64) + " " + u
+		}
+	}
+	return strconv.FormatFloat(f, 'f', 1, 64) + " EB"
+}
+
+// FormatDuration renders a duration as 37s / 4m12s / 1h02m.
+func FormatDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Minute {
+		return strconv.Itoa(int(d.Seconds())) + "s"
+	}
+	if d < time.Hour {
+		return strconv.Itoa(int(d.Minutes())) + "m" + strconv.Itoa(int(d.Seconds())%60) + "s"
+	}
+	return strconv.Itoa(int(d.Hours())) + "h" +
+		strconv.Itoa(int(d.Minutes())%60) + "m"
 }
 
 func (p *Progress) SetTotal(files int, bytes int64) {
@@ -100,6 +137,27 @@ func (p *Progress) AddFile() {
 	p.mu.Unlock()
 }
 
+// SetBytesDone records an absolute byte counter. Reading modes use it to
+// show how much of the archive has been consumed, where AddBytes would
+// count the same member twice.
+func (p *Progress) SetBytesDone(n int64) {
+	p.mu.Lock()
+	p.doneBytes = n
+	if p.enabled && !p.plain && time.Since(p.last) > 100*time.Millisecond {
+		p.last = time.Now()
+		p.draw()
+	}
+	p.mu.Unlock()
+}
+
+// Done reports how many members have been processed (used for checkpoints).
+func (p *Progress) Done() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.doneFiles
+}
+
+// Current records the member being worked on so the box can show it.
 func (p *Progress) Current(name string) {
 	p.mu.Lock()
 	p.current = name
@@ -171,20 +229,32 @@ func (p *Progress) emit(lines []string) {
 	}
 }
 
+// unknownTotals reports whether the totals were never set, in which case the
+// bar cannot show a percentage and slides a pulse instead.
+func (p *Progress) unknownTotals() bool {
+	return p.totalFiles <= 0 && p.totalBytes <= 0
+}
+
 func (p *Progress) boxLines() []string {
 	inner := p.width - 4 // content between the two vertical bars
 
+	unknown := p.unknownTotals()
 	frac := 0.0
-	if p.totalBytes > 0 {
-		frac = float64(p.doneBytes) / float64(p.totalBytes)
-	} else if p.totalFiles > 0 {
-		frac = float64(p.doneFiles) / float64(p.totalFiles)
-	}
-	if frac > 1 {
-		frac = 1
+	if !unknown {
+		if p.totalBytes > 0 {
+			frac = float64(p.doneBytes) / float64(p.totalBytes)
+		} else {
+			frac = float64(p.doneFiles) / float64(p.totalFiles)
+		}
+		if frac > 1 {
+			frac = 1
+		}
 	}
 
 	pct := fmt.Sprintf("%5.1f%%", frac*100)
+	if unknown {
+		pct = "  ... "
+	}
 	barW := inner - len(pct) - 2
 	if barW < 1 {
 		barW = 1
@@ -197,7 +267,29 @@ func (p *Progress) boxLines() []string {
 	}
 	head := ""
 	empty := barW - filled
-	if rem := x - float64(filled); filled < barW && rem > 0.1 {
+	if unknown {
+		// No totals: sweep a short glow across the bar so it is still alive.
+		p.pulse++
+		glow := 6
+		pos := (p.pulse / 4) % (barW + glow)
+		filled = 0
+		empty = 0
+		head = ""
+		for i := 0; i < barW; i++ {
+			if i >= pos-glow && i < pos {
+				head += "▒"
+			} else {
+				empty++
+			}
+		}
+		if head == "" {
+			head = "░"
+			if empty > 0 {
+				empty--
+			}
+		}
+		filled = 0
+	} else if rem := x - float64(filled); filled < barW && rem > 0.1 {
 		if rem < 0.5 {
 			head = "▒"
 		} else {
@@ -216,11 +308,27 @@ func (p *Progress) boxLines() []string {
 
 	stats := colCyan + fmt.Sprintf("%d/%d files", p.doneFiles, p.totalFiles) + colReset +
 		colDim + " · " + colReset +
-		colYellow + fmtBytes(p.doneBytes) + colDim + " / " + colReset + colWhite + fmtBytes(p.totalBytes) + colReset +
+		colYellow + FormatBytes(p.doneBytes) + colDim + " / " + colReset + colWhite + FormatBytes(p.totalBytes) + colReset +
 		colDim + " · " + colReset +
 		colMagenta + fmt.Sprintf("%.1f MB/s", p.speedMB()) + colReset +
 		colDim + " · " + colReset +
-		colBlue + "ETA " + fmtDuration(p.eta()) + colReset
+		colBlue + "ETA " + FormatDuration(p.eta()) + colReset
+	if unknown || p.totalFiles <= 0 {
+		// Extraction only knows the archive size, not the member count.
+		bytes := colYellow + FormatBytes(p.doneBytes) + colReset
+		eta := "ETA ?"
+		if p.totalBytes > 0 {
+			bytes += colDim + " / " + colReset + colWhite + FormatBytes(p.totalBytes) + colReset
+			eta = "ETA " + FormatDuration(p.eta())
+		}
+		stats = colCyan + fmt.Sprintf("%d files", p.doneFiles) + colReset +
+			colDim + " · " + colReset +
+			bytes +
+			colDim + " · " + colReset +
+			colMagenta + fmt.Sprintf("%.1f MB/s", p.speedMB()) + colReset +
+			colDim + " · " + colReset +
+			colBlue + eta + colReset
+	}
 
 	file := p.current
 	if file == "" {
@@ -248,17 +356,25 @@ func (p *Progress) boxLines() []string {
 }
 
 // Finish repaints the completed bar and leaves the terminal in a clean state.
-func (p *Progress) Finish() {
+// It returns the summary line it printed (empty when there was no bar).
+func (p *Progress) Finish() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.enabled {
-		return
+		return ""
 	}
 	if p.plain {
-		fmt.Fprintf(p.out, "fastcopy: %d/%d files, %s in %s (%.1f MB/s)\n",
-			p.doneFiles, p.totalFiles, fmtBytes(p.doneBytes), fmtDuration(time.Since(p.start)), p.speedMB())
-		return
+		files := fmt.Sprintf("%d/%d files", p.doneFiles, p.totalFiles)
+		if p.totalFiles <= 0 {
+			files = fmt.Sprintf("%d files", p.doneFiles)
+		}
+		line := fmt.Sprintf("%s, %s in %s (%.1f MB/s)",
+			files, FormatBytes(p.doneBytes),
+			FormatDuration(time.Since(p.start)), p.speedMB())
+		fmt.Fprintln(p.out, line)
+		return line
 	}
 	p.draw()
 	fmt.Fprintln(p.out)
+	return ""
 }

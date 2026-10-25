@@ -1,5 +1,7 @@
-fastcopy
+/fastcopy
+/fasttar
 /tests/out/
+/tests/out-tar/
 /tests/fuzzout/
 *.o
 *.exe

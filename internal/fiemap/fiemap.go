@@ -1,4 +1,7 @@
-package main
+// Package fiemap resolves the physical (on-disk) offset of a file's first
+// data extent through the Linux FIEMAP ioctl, which is what lets the tools in
+// this repo read files in platter order instead of traversal order.
+package fiemap
 
 import (
 	"os"
@@ -51,10 +54,12 @@ type fiemap struct {
 	Extents [extentCount]fiemapExtent
 }
 
-// firstPhysicalOffset returns the physical byte offset of the first data extent
-// of a file. --fast uses it to read files in the order they are laid out on the
-// platter, which keeps the heads mostly sequential on rotating media.
-func firstPhysicalOffset(path string) (uint64, bool) {
+// FirstPhysicalOffset returns the physical byte offset of the first data
+// extent of a file. --fast uses it to read files in the order they are laid
+// out on the platter, which keeps the heads mostly sequential on rotating
+// media. It returns false when the filesystem has no answer (tmpfs, network
+// mounts, unallocated data, unreadable files).
+func FirstPhysicalOffset(path string) (uint64, bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return 0, false

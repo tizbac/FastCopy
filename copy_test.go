@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tiziano/fastcopy/internal/progress"
 )
 
 func TestParseSize(t *testing.T) {
@@ -90,7 +92,7 @@ func TestMakeParents(t *testing.T) {
 	}
 
 	opts := defaultOptions()
-	c := &copier{opts: &opts, prog: NewProgress(os.Stdout, false), hardlinks: map[uint64]string{}}
+	c := &copier{opts: &opts, prog: progress.New(os.Stdout, false), hardlinks: map[uint64]string{}}
 	leaf := filepath.Join(src, "a", "b", "leaf.txt")
 	if err := c.makeParents(leaf, dst); err != nil {
 		t.Fatalf("makeParents: %v", err)
@@ -126,7 +128,7 @@ func TestSparseCopyKeepsLogicalSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := defaultOptions()
-	c := &copier{opts: &opts, prog: NewProgress(os.Stdout, false), hardlinks: map[uint64]string{}}
+	c := &copier{opts: &opts, prog: progress.New(os.Stdout, false), hardlinks: map[uint64]string{}}
 	e := entry{
 		src:   src,
 		dst:   filepath.Join(root, "dst.bin"),
@@ -156,7 +158,7 @@ func TestDirectoryNeedsRecursive(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := defaultOptions()
-	c := &copier{opts: &opts, prog: NewProgress(os.Stderr, false), hardlinks: map[uint64]string{}}
+	c := &copier{opts: &opts, prog: progress.New(os.Stderr, false), hardlinks: map[uint64]string{}}
 	var entries []entry
 	if err := c.walk(filepath.Join(root, "dir"), filepath.Join(root, "out"), &entries); err == nil {
 		t.Error("copying a directory without -r should fail like cp")

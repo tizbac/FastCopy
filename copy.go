@@ -11,6 +11,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/tiziano/fastcopy/internal/fiemap"
+	"github.com/tiziano/fastcopy/internal/progress"
 )
 
 // entry is one file to copy. Directories are created while walking the tree,
@@ -31,7 +34,7 @@ type entry struct {
 
 type copier struct {
 	opts      *Options
-	prog      *Progress
+	prog      *progress.Progress
 	hardlinks map[uint64]string
 	rootDev   uint64
 	mu        sync.Mutex
@@ -163,7 +166,7 @@ func (c *copier) addFile(entries *[]entry, src, dst string, info os.FileInfo) {
 	}
 
 	if c.opts.Fast {
-		if off, ok := firstPhysicalOffset(src); ok {
+		if off, ok := fiemap.FirstPhysicalOffset(src); ok {
 			e.order = off
 		}
 		if c.opts.Debug {
