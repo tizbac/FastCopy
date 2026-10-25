@@ -128,6 +128,11 @@ The intentional differences are:
   accepted as single-volume no-ops, and `--level`, `--group-map`,
   `--owner-map` are accepted (they only affect incremental backups);
 - `--mode` is applied when creating an archive, not when extracting;
+- `--exclude-ignore`/`--exclude-ignore-recursive` patterns are applied like
+  ordinary exclusion patterns (GNU matches a few slash-containing ones more
+  narrowly); `--exclude-vcs-ignores` reads `.cvsignore`, `.gitignore`,
+  `.bzrignore` and `.hgignore`, without negation support (GNU ignores
+  negations too);
 - members are written in command line/readdir order (or physical order with
   `--fast`), so archives made by fasttar may list members in a different order
   than GNU tar would; the contents are identical.

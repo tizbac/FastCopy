@@ -46,6 +46,65 @@ func TestWildmatch(t *testing.T) {
 	}
 }
 
+func TestExclSet(t *testing.T) {
+	wild := matchOpts{wildcards: true, matchSlash: true}
+	tests := []struct {
+		name   string
+		opts   matchOpts
+		pats   []string
+		member string
+		want   bool
+	}{
+		{"component", wild, []string{"sub"}, "./sub/file", true},
+		{"component prefix", wild, []string{"su*"}, "tree/subway/x", true},
+		{"no false component", wild, []string{"sub"}, "./subway/x", false},
+		{"leading directory", wild, []string{"./sub"}, "./sub/file", true},
+		{"slash pattern", wild, []string{"sub/file"}, "./sub/file", true},
+		{"wildcard crosses slash", wild, []string{"sub*file"}, "sub/file", true},
+		{"trailing slash does not match", wild, []string{"sub/"}, "./sub/file", false},
+		{"anchored", matchOpts{wildcards: true, matchSlash: true, anchored: true}, []string{"sub"}, "./sub/file", false},
+		{"anchored leading dir", matchOpts{wildcards: true, matchSlash: true, anchored: true}, []string{"./sub"}, "./sub/file", true},
+		{"literal is not a glob", matchOpts{}, []string{"*.txt"}, "./a.txt", false},
+		{"literal component", matchOpts{}, []string{"a.txt"}, "./a.txt", true},
+		{"literal leading dir", matchOpts{}, []string{"sub"}, "./sub/file", true},
+		{"literal ignore case", matchOpts{ignoreCase: true}, []string{"SUB"}, "./sub/file", true},
+	}
+	for _, tc := range tests {
+		e := &exclSet{opts: tc.opts, pats: tc.pats}
+		if got := e.match(tc.member); got != tc.want {
+			t.Errorf("%s: match(%q) with %v = %v, want %v", tc.name, tc.member, tc.pats, got, tc.want)
+		}
+	}
+}
+
+func TestReadVCSIgnore(t *testing.T) {
+	dir := t.TempDir()
+	git := filepath.Join(dir, ".gitignore")
+	if err := os.WriteFile(git, []byte("# comment\n*.o\n\n!keep.o\r\nbuild/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pats, err := readVCSIgnore(git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"*.o", "build/"}
+	if strings.Join(pats, ",") != strings.Join(want, ",") {
+		t.Errorf("readVCSIgnore = %v, want %v", pats, want)
+	}
+
+	cvs := filepath.Join(dir, ".cvsignore")
+	if err := os.WriteFile(cvs, []byte("a.o b.o\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pats, err = readVCSIgnore(cvs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(pats, ",") != "a.o,b.o" {
+		t.Errorf("readVCSIgnore(.cvsignore) = %v", pats)
+	}
+}
+
 func TestParseTransform(t *testing.T) {
 	tests := []struct {
 		expr  string

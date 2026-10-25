@@ -238,12 +238,6 @@ func exclusions(o *Options) (*exclSet, error) {
 		}
 		e.pats = append(e.pats, pats...)
 	}
-	// --exclude-vcs-ignores reads the ignore files themselves (approximated
-	// with plain pattern matching, see README).
-	if o.ExcludeVCSIgnores {
-		e.pats = append(e.pats, ".gitignore", ".hgignore", ".bzrignore", ".cvsignore")
-		o.note("--exclude-vcs-ignores uses plain pattern matching, not gitignore semantics")
-	}
 	return e, nil
 }
 
@@ -455,7 +449,9 @@ func (b *builder) visit(path, name string, st os.FileInfo, out *[]member) error 
 
 	skipContents := ok && (mode == tagCaches || mode == tagUnder)
 	for _, de := range entries {
-		if skipContents && de.Name() != tagFile {
+		// --exclude-tag/--exclude-caches keep the tag file itself, while
+		// --exclude-tag-under/--exclude-caches-under drop every entry.
+		if skipContents && !(mode == tagCaches && de.Name() == tagFile) {
 			continue
 		}
 		child := filepath.Join(path, de.Name())
@@ -486,45 +482,76 @@ const (
 )
 
 func (b *builder) tagAction(dir string) (tagMode, string, bool) {
-	check := func(names []string, mode tagMode) (tagMode, string, bool) {
-		for _, n := range names {
-			if n != "" && fileExists(filepath.Join(dir, n)) {
-				return mode, n, true
-			}
-		}
-		return tagNone, "", false
-	}
-	for _, group := range []struct {
-		names []string
+	type rule struct {
+		name  string
 		mode  tagMode
-	}{
-		{[]string{"CACHEDIR.TAG"}, tagAll},
-		{b.o.ExcludeTagAll, tagAll},
-		{[]string{"CACHEDIR.TAG"}, tagUnder},
-		{b.o.ExcludeTagUnder, tagUnder},
-		{[]string{"CACHEDIR.TAG"}, tagCaches},
-		{b.o.ExcludeTag, tagCaches},
-	} {
-		// Only the enabled variants matter; re-check flags to keep order sane.
-		if group.mode == tagAll && len(group.names) == 1 && !b.o.ExcludeCachesAll {
+		cache bool // CACHEDIR.TAG only counts with its standard signature
+	}
+	var rules []rule
+	if b.o.ExcludeCachesAll {
+		rules = append(rules, rule{"CACHEDIR.TAG", tagAll, true})
+	}
+	if b.o.ExcludeCachesUnder {
+		rules = append(rules, rule{"CACHEDIR.TAG", tagUnder, true})
+	}
+	if b.o.ExcludeCaches {
+		rules = append(rules, rule{"CACHEDIR.TAG", tagCaches, true})
+	}
+	for _, n := range b.o.ExcludeTagAll {
+		rules = append(rules, rule{n, tagAll, false})
+	}
+	for _, n := range b.o.ExcludeTagUnder {
+		rules = append(rules, rule{n, tagUnder, false})
+	}
+	for _, n := range b.o.ExcludeTag {
+		rules = append(rules, rule{n, tagCaches, false})
+	}
+	for _, r := range rules {
+		if r.name == "" {
 			continue
 		}
-		if group.mode == tagUnder && len(group.names) == 1 && !b.o.ExcludeCachesUnder {
+		if r.cache {
+			if cacheTagPresent(dir) {
+				return r.mode, r.name, true
+			}
 			continue
 		}
-		if group.mode == tagCaches && len(group.names) == 1 && !b.o.ExcludeCaches {
-			continue
-		}
-		if m, f, ok := check(group.names, group.mode); ok {
-			return m, f, true
+		if fileExists(filepath.Join(dir, r.name)) {
+			return r.mode, r.name, true
 		}
 	}
 	return tagNone, "", false
 }
 
+// cacheTagSignature marks a directory as a cache, per the cache directory tag
+// specification GNU tar implements.
+const cacheTagSignature = "Signature: 8a477f597d28d172789f06886806bc55"
+
+// cacheTagPresent reports whether dir contains a CACHEDIR.TAG with the
+// standard signature; GNU ignores tag files without it.
+func cacheTagPresent(dir string) bool {
+	f, err := os.Open(filepath.Join(dir, "CACHEDIR.TAG"))
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, len(cacheTagSignature))
+	if _, err := io.ReadFull(f, head); err != nil {
+		return false
+	}
+	return string(head) == cacheTagSignature
+}
+
 // pushIgnore loads the --exclude-ignore patterns of one directory; the caller
 // restores the previous length when it returns.
 func (b *builder) pushIgnore(dir string) {
+	if b.o.ExcludeVCSIgnores {
+		for _, f := range []string{".cvsignore", ".gitignore", ".bzrignore", ".hgignore"} {
+			if pats, err := readVCSIgnore(filepath.Join(dir, f)); err == nil {
+				b.excl.pats = append(b.excl.pats, pats...)
+			}
+		}
+	}
 	for _, f := range b.o.ExcludeIgnore {
 		if pats, err := readPatternFile(b.o, filepath.Join(dir, f)); err == nil {
 			b.excl.pats = append(b.excl.pats, pats...)
@@ -535,6 +562,34 @@ func (b *builder) pushIgnore(dir string) {
 			b.excl.pats = append(b.excl.pats, pats...)
 		}
 	}
+}
+
+// readVCSIgnore reads the patterns of one VCS ignore file the way GNU tar
+// does for --exclude-vcs-ignores: comments and negations are dropped, and
+// .cvsignore lists several space separated patterns per line.
+func readVCSIgnore(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	fields := false
+	if filepath.Base(path) == ".cvsignore" {
+		fields = true
+	}
+	var pats []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
+			continue
+		}
+		if fields {
+			pats = append(pats, strings.Fields(line)...)
+		} else {
+			pats = append(pats, line)
+		}
+	}
+	return pats, nil
 }
 
 // visitMember decides whether a node becomes a member and appends it.
