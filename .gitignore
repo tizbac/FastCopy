@@ -1,0 +1,6 @@
+fastcopy
+/tests/out/
+/tests/fuzzout/
+*.o
+*.exe
+/go.sum
